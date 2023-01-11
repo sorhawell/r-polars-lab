@@ -31,8 +31,17 @@ impl LazyFrame {
     }
 
     pub fn collect(&self) -> List {
-        let result = handle_thread_r_requests(self.clone().0)
-            .map_err(|err| format!("when calling $collect() on LazyFrame:\n{:?}", err));
+        let result = handle_thread_r_requests(self.clone().0).map_err(|err| {
+            //improve err messages
+            let err_string = match err {
+                pl::PolarsError::NotFound(polars::error::ErrString::Owned(x)) => {
+                    format!("Something (Likely a Column) named {:?} was not found", x)
+                }
+                x => format!("{:?}", x),
+            };
+
+            format!("when calling $collect() on LazyFrame:\n{}", err_string)
+        });
         r_result_list(result)
     }
 

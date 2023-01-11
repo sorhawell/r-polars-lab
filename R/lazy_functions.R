@@ -63,7 +63,7 @@ pl$all = function(name=NULL) {
 #'
 #' # from Series of names
 #' df$select(pl$col(pl$Series(c("bar","foobar"))))
-pl$col = function(name) {
+pl$col = function(name="") {
 
   #preconvert Series into char name(s)
 
@@ -78,12 +78,12 @@ pl$col = function(name) {
     }
     return(.pr$Expr$cols(name))
   }
-  if(inherits(name, "DataType"))return(.pr$Expr$dtype_cols(construct_DataTypeVector(list(name))))
+  if(inherits(name, "RPolarsDataType"))return(.pr$Expr$dtype_cols(construct_DataTypeVector(list(name))))
   if(is.list(name)) {
-    if(all(sapply(name, inherits,"DataType"))) {
+    if(all(sapply(name, inherits,"RPolarsDataType"))) {
       return(.pr$Expr$dtype_cols(construct_DataTypeVector(name)))
     } else {
-      stopf("all elements of list must be a DataType")
+      stopf("all elements of list must be a RPolarsDataType")
     }
   }
   #TODO implement series, DataType
@@ -91,6 +91,7 @@ pl$col = function(name) {
 }
 
 #' an element in 'eval'-expr
+#' @name element
 #' @description Alias for an element in evaluated in an `eval` expression.
 #' @keywords Expr
 #' @return Expr
@@ -243,7 +244,7 @@ pl$max = function(...) {
 #'
 #' If several args, then wrapped in a list and handled as above.
 #' @return Expr
-#'
+#' @keywords Expr_new
 #' @examples
 #' df = pl$DataFrame(
 #'   a = NA_real_,
@@ -276,4 +277,40 @@ pl$var = function(column, ddof = 1) {
   if (is_string(column)) return(pl$col(column)$var(ddof))
   if (is.numeric(column)) return(pl$lit(column)$var(ddof))
   stopf("pl$var: this input is not supported")
+}
+
+
+
+
+#' Concat the arrays in a Series dtype List in linear time.
+#' @description Folds the expressions from left to right, keeping the first non-null value.
+#' @name coalesce
+#' @param exprs list of Expr or Series or strings or a mix, or a char vector
+#' @return Expr
+#'
+#' @keywords Expr_new
+#'
+#' @examples
+#' #Create lagged columns and collect them into a list. This mimics a rolling window.
+#' df = pl$DataFrame(A = c(1,2,9,2,13))
+#' df$with_columns(lapply(
+#'   0:2,
+#'   \(i) pl$col("A")$shift(i)$alias(paste0("A_lag_",i))
+#' ))$select(
+#'   pl$concat_list(lapply(2:0,\(i) pl$col(paste0("A_lag_",i))))$alias(
+#'   "A_rolling"
+#'  )
+#' )
+#'
+#' #concat Expr a Series and an R obejct
+#' pl$concat_list(list(
+#'   pl$lit(1:5),
+#'   pl$Series(5:1),
+#'   rep(0L,5)
+#' ))$alias("alice")$lit_to_s()
+#'
+pl$concat_list = function(exprs) {
+  l_expr = lapply(as.list(exprs), wrap_e)
+  pra = do.call(construct_ProtoExprArray, l_expr)
+  rpolars:::concat_lst(pra)
 }

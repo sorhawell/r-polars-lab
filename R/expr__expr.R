@@ -58,7 +58,7 @@ Expr_print = function() {
 #' @examples pl$col("foo") < 5
 wrap_e = function(e, str_to_lit = TRUE) {
   if(inherits(e,"Expr")) return(e)
-  if(str_to_lit || is.numeric(e)) {
+  if(str_to_lit || is.numeric(e) || is.list(e)) {
     pl$lit(e)
   } else {
     pl$col(e)
@@ -111,7 +111,7 @@ Expr_div = "use_extendr_wrapper"
 Expr_sub = "use_extendr_wrapper"
 #' @export
 #' @rdname Expr_sub
-"-.Expr" <- function(e1,e2) e1$sub(wrap_e(e2))
+"-.Expr" <- function(e1,e2) if(missing(e2)) wrap_e(0L)$sub(e1) else e1$sub(wrap_e(e2))
 
 #' Mul *
 #' @description Multiplication
@@ -581,7 +581,7 @@ Expr_apply = function(f, return_type = NULL, strict_return_type = TRUE, allow_fa
     s$apply(f, return_type, strict_return_type, allow_fail_eval)
   }
 
-  #return epression from the functions above, activate agg_list (grouped mapping)
+  #return expression from the functions above, activate agg_list (grouped mapping)
   .pr$Expr$map(self, lambda = wrap_f, output_type = return_type, agg_list = TRUE)
 }
 
@@ -589,7 +589,7 @@ Expr_apply = function(f, return_type = NULL, strict_return_type = TRUE, allow_fa
 #' polars literal
 #' @keywords Expr
 #'
-#' @param x an R Scalar, or R vector (via Series) into Expr
+#' @param x an R Scalar, or R vector/list (via Series) into Expr
 #' @rdname Expr
 #' @return Expr, literal of that value
 #' @aliases lit
@@ -607,7 +607,7 @@ Expr_apply = function(f, return_type = NULL, strict_return_type = TRUE, allow_fa
 Expr_lit = function(x) {
   if(is.null(x)) return(unwrap(.pr$Expr$lit(NULL)))
   if (inherits(x,"Expr")) return(x)  # already Expr, pass through
-  if (length(x) != 1L) x = wrap_s(x) #wrap first as Series if not a scalar
+  if (length(x) != 1L || is.list(x)) x = wrap_s(x) #wrap first as Series if not a scalar
   unwrap(.pr$Expr$lit(x)) # create literal Expr
 }
 
@@ -821,9 +821,9 @@ Expr_exclude  = function(columns) {
   #handle lists
   if(is.list(columns)) {
     columns = pcase(
-      all(sapply(columns,inherits,"DataType")), unwrap(.pr$DataTypeVector$from_rlist(columns)),
+      all(sapply(columns,inherits,"RPolarsDataType")), unwrap(.pr$DataTypeVector$from_rlist(columns)),
       all(sapply(columns,is_string)), unlist(columns),
-      or_else = pstop(err=  paste0("only lists of pure DataType or String"))
+      or_else = pstop(err=  paste0("only lists of pure RPolarsDataType or String"))
     )
   }
 
@@ -831,7 +831,7 @@ Expr_exclude  = function(columns) {
   pcase(
     is.character(columns), .pr$Expr$exclude(self, columns),
     inherits(columns, "DataTypeVector"), .pr$Expr$exclude_dtype(self,columns),
-    inherits(columns, "DataType"), .pr$Expr$exclude_dtype(self,unwrap(.pr$DataTypeVector$from_rlist(list(columns)))),
+    inherits(columns, "RPolarsDataType"), .pr$Expr$exclude_dtype(self,unwrap(.pr$DataTypeVector$from_rlist(list(columns)))),
     or_else = pstop(err=  paste0("this type is not supported for Expr_exclude: ", columns))
   )
 
@@ -2237,7 +2237,7 @@ Expr_inspect = function(fmt = "{}") {
 
 #' Interpolate `Nulls`
 #' @keywords Expr
-#' @method string 'linear' or 'nearest'
+#' @param method string 'linear' or 'nearest'
 #' @description
 #' Fill nulls with linear interpolation over missing values.
 #' Can also be used to regrid data to a new grid - see examples below.
@@ -3718,7 +3718,7 @@ Expr_entropy  = function(base = base::exp(1), normalize = TRUE) {
   .pr$Expr$entropy(self, base, normalize)
 }
 
-
+#' Cumulative eval
 #' @description  Run an expression over a sliding window that increases `1` slot every iteration.
 #' @param expr Expression to evaluate
 #' @param min_periods Number of valid values there should be in the window before the expression
@@ -3803,3 +3803,48 @@ Expr_list = "use_extendr_wrapper"
 #'  )$select(pl$all()$shrink_dtype())
 Expr_shrink_dtype = "use_extendr_wrapper"
 
+
+
+#' arr: list related methods
+#' @description
+#' Create an object namespace of all list related methods.
+#' See the individual method pages for full details
+#' @keywords Expr
+#' @return Expr
+#' @aliases shrink_dtype
+#' @examples
+#' df_with_list = pl$DataFrame(
+#'   group = c(1,1,2,2,3),
+#'   value = c(1:5)
+#' )$groupby(
+#'   "group",maintain_order = TRUE
+#' )$agg(
+#'   pl$col("value") * 3L
+#' )
+#' df_with_list$with_column(
+#'   pl$col("value")$arr$lengths()$alias("group_size")
+#' )
+Expr_arr = method_as_property(function() {
+  expr_arr_make_sub_ns(self)
+})
+
+
+#' Literal to Series
+#' @description
+#' collect an expression based on literals into a Series
+#' @keywords Expr
+#' @return Series
+#' @aliases lit_to_s
+#' @examples
+#' (
+#'   pl$Series(list(1:1, 1:2, 1:3, 1:4))
+#'   $print()
+#'   $to_lit()
+#'     $arr$lengths()
+#'     $sum()
+#'     $cast(pl$dtypes$Int8)
+#'   $lit_to_s()
+#' )
+Expr_lit_to_s = function(){
+  pl$select(self)
+}
